@@ -23,6 +23,8 @@
 
 require 'tmpdir'
 
+use_inline_resources if defined?(use_inline_resources)
+
 action :deploy do
   # Make an alias we can use in Chef resource names
   alias_name = new_resource.name.gsub(/[[:space:][:punct:]]/, '_')
@@ -53,24 +55,6 @@ action :deploy do
       end
     end
 
-    # Download the url into the builds directory if needed
-    remote_file "download_#{alias_name}" do
-      path build_path
-      mode '0755'
-      source new_resource.url
-      action :nothing
-      notifies :create, "ruby_block[deploy_#{alias_name}]", :immediately
-    end
-
-    # HEAD the url to see if it needs to be downloaded
-    http_request "check_#{alias_name}" do
-      message ''
-      url new_resource.url
-      action :head
-      headers 'If-Modified-Since' => ::File.mtime(build_path).httpdate if ::File.exists?(build_path)
-      notifies :create, "remote_file[download_#{alias_name}]", :immediately
-    end
-
     # Deploy the file from the builds directory into the deploy path if needed
     resource = ruby_block "deploy_#{alias_name}" do
       action :nothing
@@ -91,10 +75,34 @@ action :deploy do
           ::Chef::Log.info("#{new_resource.resource_name}[#{new_resource.name}] deploying to #{deploy_path}")
           false
         end
-      }
+      } if ::File.exists?(build_path)
     end
-    resource.run_action(:create)
-    new_resource.updated_by_last_action(true) if resource.updated_by_last_action?
+
+    # Download the url into the builds directory if needed
+    remote_file "download_#{alias_name}" do
+      path build_path
+      mode '0755'
+      source new_resource.url
+      action (::File.exists?(build_path) ? :nothing : :create)
+      notifies :create, "ruby_block[deploy_#{alias_name}]", :immediately
+    end
+
+    # HEAD the url to see if it needs to be downloaded
+    http_request "check_#{alias_name}" do
+      message ''
+      url new_resource.url
+      action :head
+      headers 'If-Modified-Since' => ::File.mtime(build_path).httpdate if ::File.exists?(build_path)
+      notifies :create, "remote_file[download_#{alias_name}]", :immediately
+    end
+
+    ruby_block "execute_#{alias_name}" do
+      local_resource = resource
+      block do
+        local_resource.run_action(:create)
+        new_resource.updated_by_last_action(true) if local_resource.updated_by_last_action?
+      end
+    end
   else
     missing_attributes.each do |attr|
       ::Chef::Log.error("#{new_resource.resource_name}[#{new_resource.name}] missing required attribute '#{attr}'")
