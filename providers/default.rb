@@ -26,6 +26,8 @@ require 'tmpdir'
 use_inline_resources if defined?(use_inline_resources)
 
 action :deploy do
+  cached_new_resource = new_resource
+
   # Make an alias we can use in Chef resource names
   alias_name = new_resource.name.gsub(/[[:space:][:punct:]]/, '_')
 
@@ -56,11 +58,11 @@ action :deploy do
     end
 
     # Deploy the file from the builds directory into the deploy path if needed
-    resource = ruby_block "deploy_#{alias_name}" do
+    ruby_block "deploy_#{alias_name}" do
       action :nothing
       block do
         # Mark resource as being updated
-        new_resource.updated_by_last_action(true)
+        cached_new_resource.updated_by_last_action(true)
 
         # Copy build to deploy path
         ::FileUtils.cp(build_path, deploy_path)
@@ -97,13 +99,6 @@ action :deploy do
       action :head
       headers 'If-Modified-Since' => ::File.mtime(build_path).httpdate if ::File.exists?(build_path)
       notifies :create, "remote_file[download_#{alias_name}]", :immediately
-    end
-
-    ruby_block "execute_#{alias_name}" do
-      local_resource = resource
-      block do
-        local_resource.run_action(:create)
-      end
     end
   else
     missing_attributes.each do |attr|
