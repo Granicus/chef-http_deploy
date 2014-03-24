@@ -59,6 +59,9 @@ action :deploy do
     resource = ruby_block "deploy_#{alias_name}" do
       action :nothing
       block do
+        # Mark resource as being updated
+        new_resource.updated_by_last_action(true)
+
         # Copy build to deploy path
         ::FileUtils.cp(build_path, deploy_path)
 
@@ -100,7 +103,6 @@ action :deploy do
       local_resource = resource
       block do
         local_resource.run_action(:create)
-        new_resource.updated_by_last_action(true) if local_resource.updated_by_last_action?
       end
     end
   else
